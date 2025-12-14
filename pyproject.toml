@@ -1,0 +1,8 @@
+[project]
+name = "dtc_client"
+version = "0.1.0"
+
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
