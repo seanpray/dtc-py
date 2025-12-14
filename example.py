@@ -9,10 +9,12 @@ from src.dtc_client import (
     MarketDataUpdateTrade,
     MessageType,
     RequestActionEnum,
+    AccountBalanceRequest,
+    AccountBalanceUpdate,
 )
 
 if __name__ == "__main__":
-    client = DTCClient(host="127.0.0.1", port=11099)
+    client = DTCClient(host="127.0.0.1", port=11099, heartbeat_interval_sec=10)
 
     try:
         client.connect()
@@ -23,7 +25,7 @@ if __name__ == "__main__":
             HeartbeatIntervalInSeconds=10,
             ClientName="PythonClient",
         )
-        client.send(logon)
+        client.send(logon, set_request_id=False)
 
         response = client.wait_for(MessageType.LOGON_RESPONSE)
         if response and response.Result == LogonStatusEnum.LOGON_SUCCESS:
@@ -32,6 +34,9 @@ if __name__ == "__main__":
         else:
             print("Logon Failed")
             exit()
+
+        balance = AccountBalanceRequest(TradeAccount="DEMO1-TLAS")
+        client.send(balance)
 
         # md_req = MarketDataRequest(
         #     Symbol="ESZ5",
@@ -43,18 +48,23 @@ if __name__ == "__main__":
         # print("Market Data Requested...")
 
         while True:
-            msg = client.read_message()
-            print(msg)
-            if not msg:
-                break
+            try:
+                msg = client.read_message()
+                print(msg)
+                if not msg:
+                    break
 
-            if isinstance(msg, MarketDataUpdateTrade):
-                print(f"Trade: Price={msg.Price} Vol={msg.Volume}")
-            elif isinstance(msg, MarketDataSnapshot):
-                print(f"Snapshot: Last={msg.LastTradePrice}")
-            elif isinstance(msg, Heartbeat):
-                print("Heartbeat received")
-                # Depending on server config, you might need to send one back periodically
+                if isinstance(msg, MarketDataUpdateTrade):
+                    print(f"Trade: Price={msg.Price} Vol={msg.Volume}")
+                elif isinstance(msg, MarketDataSnapshot):
+                    print(f"Snapshot: Last={msg.LastTradePrice}")
+                elif isinstance(msg, AccountBalanceUpdate):
+                    print(f"Account Balance Update: {msg.CashBalance}")
+                elif isinstance(msg, Heartbeat):
+                    print("Heartbeat received")
+                    # Depending on server config, you might need to send one back periodically
+            except:
+                pass
 
     except KeyboardInterrupt:
         print("Disconnecting...")

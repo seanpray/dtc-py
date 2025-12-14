@@ -2,25 +2,28 @@ import json
 import socket
 import time
 from collections import deque
+from threading import Thread
+from time import sleep
 from typing import Optional
 
-from .protocol import (
-    DTCMessage,
-    EncodingEnum,
-    EncodingRequest,
-    EncodingResponse,
-    Heartbeat,
-    MessageType,
-)
+from .protocol import (DTCMessage, EncodingEnum, EncodingRequest,
+                       EncodingResponse, Heartbeat, MessageType)
 
 
 class DTCClient:
-    def __init__(self, host: str = "127.0.0.1", port: int = 11099):
+    def __init__(self, host: str = "127.0.0.1", port: int = 11099, heartbeat_interval_sec: int = 10):
         self.host = host
         self.port = port
         self.sock = None
         self.connected = False
         self.encoding = EncodingEnum.BINARY_ENCODING  # Default start state
+        self.heartbeat_interval_sec = heartbeat_interval_sec
+        # this must increment unique ids
+        self.current_request_id = 1
+
+        self.heartbeat_thread = Thread(target=self.heartbeat_loop)
+        self.heartbeat_thread.daemon = True
+        self.heartbeat_thread.start()
 
         # Buffers
         self._buffer = b""
@@ -76,10 +79,14 @@ class DTCClient:
             data += chunk
         return data
 
-    def send(self, message: DTCMessage):
+    def send(self, message: DTCMessage, set_request_id: bool = True):
         """Serializes and sends a DTCMessage (JSON mode)."""
         if not self.connected:
             raise Exception("Not connected")
+
+        if set_request_id:
+            message.RequestID = self.current_request_id
+            self.current_request_id += 1
 
         # We assume JSON encoding now
         json_data = message.to_json()
@@ -123,7 +130,7 @@ class DTCClient:
                 return self._message_queue.popleft()
 
             # If queue is empty, try to read more from socket
-            self.sock.settimeout(1.0)  # Short timeout for loop check
+            self.sock.settimeout(15.0)  # Short timeout for loop check
             try:
                 self._read_socket()
             except socket.timeout:
@@ -170,5 +177,6 @@ class DTCClient:
 
     def heartbeat_loop(self):
         """Simple helper to send heartbeats if you were threading this."""
+        sleep(self.heartbeat_interval_sec)
         hb = Heartbeat()
         self.send(hb)
