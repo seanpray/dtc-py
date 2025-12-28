@@ -125,12 +125,14 @@ class DTCClient:
         """
         start_time = time.time()
 
+        timeout = 15.0 if timeout is None else timeout
+
         while self.connected:
             if self._message_queue:
                 return self._message_queue.popleft()
 
             # If queue is empty, try to read more from socket
-            self.sock.settimeout(15.0)  # Short timeout for loop check
+            self.sock.settimeout(timeout)  # Short timeout for loop check
             try:
                 self._read_socket()
             except socket.timeout:
@@ -149,15 +151,13 @@ class DTCClient:
         Waits specifically for a message of 'message_type'.
         Any other messages received in the meantime (e.g. Heartbeats) are ignored
         or handled (here just printed/queued could be an option).
-
-        Note: In a production app, you might want to callback/queue the skipped messages.
         """
         start_time = time.time()
         skipped_messages = []
         found_msg = None
 
         while time.time() - start_time < timeout:
-            msg = self.read_message(timeout=1.0)
+            msg = self.read_message(timeout=5.0)
             if not msg:
                 continue
 
@@ -165,18 +165,16 @@ class DTCClient:
                 found_msg = msg
                 break
             elif msg.Type == MessageType.HEARTBEAT:
-                # Auto-reply to heartbeats? Usually client sends them on timer.
-                # But here we just ignore incoming heartbeats during a specific wait
                 pass
             else:
-                print(f"Received async message while waiting: {msg}")
-                # Ideally, put back in a secondary queue or handle via callback
-                # For now, we unfortunately drop it or store it if you prefer
+                pass
+                # self._message_queue.extend(msg)
 
         return found_msg
 
     def heartbeat_loop(self):
-        """Simple helper to send heartbeats if you were threading this."""
-        sleep(self.heartbeat_interval_sec)
-        hb = Heartbeat()
-        self.send(hb)
+        while True:
+            sleep(self.heartbeat_interval_sec)
+            hb = Heartbeat()
+            self.send(hb)
+
