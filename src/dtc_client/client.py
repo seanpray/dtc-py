@@ -157,7 +157,7 @@ class DTCClient:
         found_msg = None
 
         while time.time() - start_time < timeout:
-            msg = self.read_message(timeout=5.0)
+            msg = self.read_message(timeout)
             if not msg:
                 continue
 
@@ -175,6 +175,8 @@ class DTCClient:
     def heartbeat_loop(self):
         while True:
             sleep(self.heartbeat_interval_sec)
-            hb = Heartbeat()
-            self.send(hb)
+            if self.connected:
+                hb = Heartbeat()
+                self.send(hb)
+
 
