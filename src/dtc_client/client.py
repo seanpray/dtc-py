@@ -2,7 +2,7 @@ import json
 import socket
 import time
 from collections import deque
-from threading import Thread
+from threading import Thread, Lock
 from time import sleep
 from typing import Optional
 
@@ -20,14 +20,19 @@ class DTCClient:
         self.heartbeat_interval_sec = heartbeat_interval_sec
         # this must increment unique ids
         self.current_request_id = 1
+        self.current_order_id = 1  # For unique ClientOrderID generation
 
-        self.heartbeat_thread = Thread(target=self.heartbeat_loop)
-        self.heartbeat_thread.daemon = True
-        self.heartbeat_thread.start()
+        # Thread safety lock for socket operations
+        self._socket_lock = Lock()
 
         # Buffers
         self._buffer = b""
         self._message_queue = deque()
+
+        # Start heartbeat thread (will wait for connection)
+        self.heartbeat_thread = Thread(target=self.heartbeat_loop)
+        self.heartbeat_thread.daemon = True
+        self.heartbeat_thread.start()
 
     def connect(self):
         """
@@ -37,37 +42,42 @@ class DTCClient:
         4. Switches mode to JSON.
         """
         print(f"Connecting to {self.host}:{self.port}...")
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.sock.settimeout(5.0)  # Set timeout for handshake
-        self.sock.connect((self.host, self.port))
+        with self._socket_lock:
+            self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.sock.settimeout(5.0)  # Set timeout for handshake
+            self.sock.connect((self.host, self.port))
 
-        # --- Step 1: Binary Handshake ---
-        print("Performing Binary Encoding Handshake...")
+            # --- Step 1: Binary Handshake ---
+            print("Performing Binary Encoding Handshake...")
 
-        # Create and Send Request
-        req = EncodingRequest(Encoding=EncodingEnum.JSON_ENCODING)
-        bin_data = req.to_binary()
-        self.sock.sendall(bin_data)
+            # Create and Send Request
+            req = EncodingRequest(Encoding=EncodingEnum.JSON_ENCODING)
+            bin_data = req.to_binary()
+            self.sock.sendall(bin_data)
 
-        # Receive Fixed-Size Response (16 bytes)
-        # We read exactly 16 bytes because s_EncodingResponse is fixed size
-        response_data = self._recv_exact(16)
+            # Receive Fixed-Size Response (16 bytes)
+            # We read exactly 16 bytes because s_EncodingResponse is fixed size
+            response_data = self._recv_exact(16)
 
-        if not response_data:
-            raise ConnectionError("Failed to receive Encoding Response")
+            if not response_data:
+                raise ConnectionError("Failed to receive Encoding Response")
 
-        resp = EncodingResponse.from_binary(response_data)
+            resp = EncodingResponse.from_binary(response_data)
 
-        if resp.Encoding != EncodingEnum.JSON_ENCODING:
-            raise Exception(f"Server refused JSON encoding. Returned: {resp.Encoding}")
+            if resp.Encoding != EncodingEnum.JSON_ENCODING:
+                raise Exception(f"Server refused JSON encoding. Returned: {resp.Encoding}")
 
-        print(
-            f"Handshake Complete. Protocol Version: {resp.ProtocolVersion}. Switched to JSON."
-        )
+            print(
+                f"Handshake Complete. Protocol Version: {resp.ProtocolVersion}. Switched to JSON."
+            )
 
+            self.encoding = EncodingEnum.JSON_ENCODING
+            # Set socket to non-blocking mode with a reasonable timeout
+            self.sock.settimeout(0.5)  # 500ms timeout for reads
+
+        # Mark as connected AFTER lock is released so heartbeat can start
         self.connected = True
-        self.encoding = EncodingEnum.JSON_ENCODING
-        self.sock.settimeout(None)  # Reset timeout to blocking or handle differently
+        print("[DTC] Connection established, heartbeat thread active")
 
     def _recv_exact(self, n: int) -> bytes:
         """Helper to receive exactly n bytes (blocking)."""
@@ -79,25 +89,41 @@ class DTCClient:
             data += chunk
         return data
 
-    def send(self, message: DTCMessage, set_request_id: bool = True):
+    def send(self, message: DTCMessage, set_request_id: bool = False, set_order_id: bool = False):
         """Serializes and sends a DTCMessage (JSON mode)."""
         if not self.connected:
             raise Exception("Not connected")
 
-        if set_request_id:
+        if set_request_id and hasattr(message, 'RequestID'):
             message.RequestID = self.current_request_id
             self.current_request_id += 1
 
+        if set_order_id and hasattr(message, 'ClientOrderID'):
+            # Generate unique ClientOrderID
+            message.ClientOrderID = f"ORDER_{int(time.time() * 1000)}_{self.current_order_id}"
+            self.current_order_id += 1
+
         # We assume JSON encoding now
         json_data = message.to_json()
-        # print(f"Sending: {json_data}") # Debug logging
-        self.sock.sendall(json_data)
+
+        with self._socket_lock:
+            if not self.connected:
+                raise ConnectionError("Connection lost before send")
+            try:
+                self.sock.sendall(json_data)
+            except socket.error as e:
+                self.connected = False
+                raise ConnectionError(f"Failed to send message: {e}")
 
     def _read_socket(self):
         """Reads stream, parses JSON messages separated by null bytes."""
         try:
-            # Read chunk
-            chunk = self.sock.recv(4096)
+            # Read chunk with lock
+            with self._socket_lock:
+                if not self.connected:
+                    return
+                chunk = self.sock.recv(4096)
+
             if not chunk:
                 self.connected = False
                 raise ConnectionError("Socket closed")
@@ -114,8 +140,12 @@ class DTCClient:
                     except Exception as e:
                         print(f"JSON Decode Error: {e} | Data: {msg_data}")
 
+        except socket.timeout:
+            # Timeout is normal, just return
+            pass
         except socket.error as e:
-            print(f"Socket Error: {e}")
+            if self.connected:  # Only print if we weren't already disconnected
+                print(f"Socket Error: {e}")
             self.connected = False
 
     def read_message(self, timeout=None) -> Optional[DTCMessage]:
@@ -124,7 +154,6 @@ class DTCClient:
         Reads from socket if queue is empty.
         """
         start_time = time.time()
-
         timeout = 15.0 if timeout is None else timeout
 
         while self.connected:
@@ -132,16 +161,16 @@ class DTCClient:
                 return self._message_queue.popleft()
 
             # If queue is empty, try to read more from socket
-            self.sock.settimeout(timeout)  # Short timeout for loop check
             try:
                 self._read_socket()
-            except socket.timeout:
-                pass
             except ConnectionError:
                 return None
 
             if timeout and (time.time() - start_time > timeout):
                 return None
+
+            # Small sleep to prevent busy waiting
+            time.sleep(0.01)
 
         return None
 
@@ -173,10 +202,28 @@ class DTCClient:
         return found_msg
 
     def heartbeat_loop(self):
+        """Background thread that sends periodic heartbeats to keep connection alive."""
         while True:
             sleep(self.heartbeat_interval_sec)
             if self.connected:
-                hb = Heartbeat()
-                self.send(hb)
+                try:
+                    hb = Heartbeat()
+                    self.send(hb, set_request_id=False)
+                except Exception as e:
+                    print(f"[HEARTBEAT] Failed to send heartbeat: {e}")
+                    self.connected = False
+                    break
+
+    def disconnect(self):
+        """Cleanly disconnect from the server."""
+        self.connected = False
+        with self._socket_lock:
+            if self.sock:
+                try:
+                    self.sock.close()
+                except:
+                    pass
+                self.sock = None
+        print("[DTC] Disconnected")
 
 

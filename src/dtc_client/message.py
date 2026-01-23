@@ -23,22 +23,27 @@ class DTCMessage:
         """
         Converts the dataclass to a JSON string bytes with NULL terminator.
         Removes keys with None values to keep payload small.
+        IMPORTANT: Type field must be first for Sierra Chart compatibility.
         """
         # Convert dataclass to dict
         data = asdict(self)
 
-        # DTC Protocol requires the "Type" field to be present
-        if "Type" not in data:
-            data["Type"] = getattr(self, "Type", 0)
-
+        # Get the Type value
+        type_value = data.get("Type") or getattr(self, "Type", 0)
+        
         # Remove 'Size' if it exists (only for binary)
         data.pop("Size", None)
 
         # Filter out None values
         clean_data = {k: v for k, v in data.items() if v is not None}
 
+        # Create new dict with Type first (required by Sierra Chart)
+        ordered_data = {"Type": type_value}
+        ordered_data.update({k: v for k, v in clean_data.items() if k != "Type"})
+
         # Serialize to JSON and append null terminator
-        return json.dumps(clean_data).encode("utf-8") + b"\x00"
+        # Use ASCII encoding as required by Sierra Chart DTC protocol
+        return (json.dumps(ordered_data) + "\x00").encode("ascii")
 
     @staticmethod
     def from_json(json_bytes: bytes) -> "DTCMessage":
