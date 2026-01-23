@@ -30,7 +30,7 @@ class DTCMessage:
 
         # Get the Type value
         type_value = data.get("Type") or getattr(self, "Type", 0)
-        
+
         # Remove 'Size' if it exists (only for binary)
         data.pop("Size", None)
 

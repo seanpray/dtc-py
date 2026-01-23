@@ -6,12 +6,23 @@ from threading import Thread, Lock
 from time import sleep
 from typing import Optional
 
-from .protocol import (DTCMessage, EncodingEnum, EncodingRequest,
-                       EncodingResponse, Heartbeat, MessageType)
+from .protocol import (
+    DTCMessage,
+    EncodingEnum,
+    EncodingRequest,
+    EncodingResponse,
+    Heartbeat,
+    MessageType,
+)
 
 
 class DTCClient:
-    def __init__(self, host: str = "127.0.0.1", port: int = 11099, heartbeat_interval_sec: int = 10):
+    def __init__(
+        self,
+        host: str = "127.0.0.1",
+        port: int = 11099,
+        heartbeat_interval_sec: int = 10,
+    ):
         self.host = host
         self.port = port
         self.sock = None
@@ -65,7 +76,9 @@ class DTCClient:
             resp = EncodingResponse.from_binary(response_data)
 
             if resp.Encoding != EncodingEnum.JSON_ENCODING:
-                raise Exception(f"Server refused JSON encoding. Returned: {resp.Encoding}")
+                raise Exception(
+                    f"Server refused JSON encoding. Returned: {resp.Encoding}"
+                )
 
             print(
                 f"Handshake Complete. Protocol Version: {resp.ProtocolVersion}. Switched to JSON."
@@ -89,18 +102,25 @@ class DTCClient:
             data += chunk
         return data
 
-    def send(self, message: DTCMessage, set_request_id: bool = False, set_order_id: bool = False):
+    def send(
+        self,
+        message: DTCMessage,
+        set_request_id: bool = False,
+        set_order_id: bool = False,
+    ):
         """Serializes and sends a DTCMessage (JSON mode)."""
         if not self.connected:
             raise Exception("Not connected")
 
-        if set_request_id and hasattr(message, 'RequestID'):
+        if set_request_id and hasattr(message, "RequestID"):
             message.RequestID = self.current_request_id
             self.current_request_id += 1
 
-        if set_order_id and hasattr(message, 'ClientOrderID'):
+        if set_order_id and hasattr(message, "ClientOrderID"):
             # Generate unique ClientOrderID
-            message.ClientOrderID = f"ORDER_{int(time.time() * 1000)}_{self.current_order_id}"
+            message.ClientOrderID = (
+                f"ORDER_{int(time.time() * 1000)}_{self.current_order_id}"
+            )
             self.current_order_id += 1
 
         # We assume JSON encoding now
@@ -225,5 +245,3 @@ class DTCClient:
                     pass
                 self.sock = None
         print("[DTC] Disconnected")
-
-

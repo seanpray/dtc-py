@@ -78,15 +78,15 @@ class EncodingResponse:
 @dataclass(kw_only=True)
 class LogonRequest(DTCMessage, type_id=MessageType.LOGON_REQUEST):
     ProtocolVersion: int = None
-    Username: str = None 
-    Password: str = None 
-    GeneralTextData: str = None 
-    Integer_1: int = None 
-    Integer_2: int = None 
+    Username: str = None
+    Password: str = None
+    GeneralTextData: str = None
+    Integer_1: int = None
+    Integer_2: int = None
     HeartbeatIntervalInSeconds: int = None
-    TradeAccount: str = None 
-    HardwareIdentifier: str = None 
-    ClientName: str = None 
+    TradeAccount: str = None
+    HardwareIdentifier: str = None
+    ClientName: str = None
     MarketDataTransmissionInterval: int = None
 
 
