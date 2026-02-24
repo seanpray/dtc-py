@@ -30,20 +30,21 @@ class DTCMessage:
 
         # Get the Type value
         type_value = data.get("Type") or getattr(self, "Type", 0)
-
+        
         # Remove 'Size' if it exists (only for binary)
         data.pop("Size", None)
 
-        # Filter out None values
-        clean_data = {k: v for k, v in data.items() if v is not None}
 
         # Create new dict with Type first (required by Sierra Chart)
         ordered_data = {"Type": type_value}
-        ordered_data.update({k: v for k, v in clean_data.items() if k != "Type"})
+        ordered_data.update({k: v for k, v in data.items() if k != "Type"})
+
+        # Filter out None values
+        clean_data = {k: v for k, v in ordered_data.items() if v is not None}
 
         # Serialize to JSON and append null terminator
         # Use ASCII encoding as required by Sierra Chart DTC protocol
-        return (json.dumps(ordered_data) + "\x00").encode("ascii")
+        return (json.dumps(clean_data)).encode("ascii") + b'\x00'
 
     @staticmethod
     def from_json(json_bytes: bytes) -> "DTCMessage":

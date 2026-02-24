@@ -78,15 +78,15 @@ class EncodingResponse:
 @dataclass(kw_only=True)
 class LogonRequest(DTCMessage, type_id=MessageType.LOGON_REQUEST):
     ProtocolVersion: int = None
-    Username: str = None
-    Password: str = None
-    GeneralTextData: str = None
-    Integer_1: int = None
-    Integer_2: int = None
+    Username: str = None 
+    Password: str = None 
+    GeneralTextData: str = None 
+    Integer_1: int = None 
+    Integer_2: int = None 
     HeartbeatIntervalInSeconds: int = None
-    TradeAccount: str = None
-    HardwareIdentifier: str = None
-    ClientName: str = None
+    TradeAccount: str = None 
+    HardwareIdentifier: str = None 
+    ClientName: str = None 
     MarketDataTransmissionInterval: int = None
 
 
@@ -116,7 +116,7 @@ class LogonResponse(DTCMessage, type_id=MessageType.LOGON_RESPONSE):
 @dataclass(kw_only=True)
 class Heartbeat(DTCMessage, type_id=MessageType.HEARTBEAT):
     NumDroppedMessages: int = None
-    CurrentDateTime: int = None
+    CurrentDateTime: int = 0
 
 
 @dataclass(kw_only=True)
